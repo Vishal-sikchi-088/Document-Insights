@@ -6,17 +6,20 @@ repositories — receives what it needs via `Depends()` and never imports a
 client directly, so swapping infrastructure (e.g. for tests) never touches
 route or business logic.
 
-CORS and other browser-facing security headers are intentionally omitted:
-this API has no browser client in scope for this exercise, so a permissive
-CORS policy would be an unused attack surface and a restrictive one would
-need an origin list nobody has specified yet. Worth revisiting the moment
-an actual frontend origin exists.
+CORS is off by default for the same reason it was originally omitted
+entirely: this API has no browser client in production scope, so a
+permissive policy would be unused attack surface. The one exception is
+`tools/api_tester.html` (see that file) — a local, file-opened manual
+testing page — which needs *some* CORS allowance to reach this API from
+a `file://` origin at all. That allowance is gated to
+`ENVIRONMENT=development` so it never applies to a real deployment.
 """
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.core.error_handlers import register_exception_handlers
@@ -59,6 +62,21 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+
+    if settings.environment == "development":
+        # `allow_origins=["*"]` is safe here specifically because this
+        # branch never runs in production and nothing on this API relies
+        # on cookies/credentials — there's no session to leak cross-site.
+        # A `file://`-opened page sends `Origin: null`, which a specific
+        # origin allowlist can't match reliably across browsers, so a
+        # wildcard is actually the more robust choice for this use case,
+        # not a lazier one.
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["GET", "POST"],
+            allow_headers=["Content-Type"],
+        )
 
     app.include_router(health.router)
     app.include_router(documents.router)
