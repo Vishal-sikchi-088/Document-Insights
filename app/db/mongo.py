@@ -15,7 +15,11 @@ DOCUMENTS_COLLECTION = "documents"
 
 
 def create_mongo_client(uri: str) -> AsyncIOMotorClient:
-    return AsyncIOMotorClient(uri, uuidRepresentation="standard")
+    # tz_aware=True makes PyMongo hand back timezone-aware UTC datetimes
+    # instead of naive ones. Our Pydantic models store `created_at` /
+    # `updated_at` as aware datetimes, so this keeps round-tripping
+    # consistent instead of silently dropping tzinfo on read.
+    return AsyncIOMotorClient(uri, uuidRepresentation="standard", tz_aware=True)
 
 
 async def create_indexes(db: AsyncIOMotorDatabase) -> None:
