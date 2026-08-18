@@ -13,6 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from redis.asyncio import Redis
 
 from app.config import Settings, get_settings
+from app.core.ttl import compute_worst_case_job_lifetime_seconds
 from app.repositories.document_repository import DocumentRepository
 from app.services.cache_service import CacheService
 from app.services.document_service import DocumentService
@@ -32,24 +33,6 @@ def get_document_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> Docum
     return DocumentRepository(db)
 
 
-def _worst_case_job_lifetime_seconds(settings: Settings) -> int:
-    """Upper bound on how long a single document might stay in-flight
-    across every retry attempt (processing time plus doubling backoff).
-
-    Used as the TTL safety net for the rate-limit entry and the cache
-    processing lock: long enough that it never expires out from under a
-    job that's still legitimately running, short enough to self-heal
-    promptly if a worker crashes without releasing either one.
-    """
-    attempts = settings.worker_max_retries + 1
-    total_processing_time = attempts * settings.worker_max_processing_seconds
-    total_backoff_time = sum(
-        settings.worker_retry_backoff_seconds * (2**attempt) for attempt in range(settings.worker_max_retries)
-    )
-    safety_buffer_seconds = 60
-    return total_processing_time + total_backoff_time + safety_buffer_seconds
-
-
 def get_rate_limiter(
     redis_client: Redis = Depends(get_redis),
     settings: Settings = Depends(get_settings),
@@ -57,7 +40,7 @@ def get_rate_limiter(
     return RateLimiterService(
         redis_client,
         max_active_jobs=settings.rate_limit_max_active_jobs,
-        entry_ttl_seconds=_worst_case_job_lifetime_seconds(settings),
+        entry_ttl_seconds=compute_worst_case_job_lifetime_seconds(settings),
     )
 
 
@@ -68,7 +51,7 @@ def get_cache_service(
     return CacheService(
         redis_client,
         cache_ttl_seconds=settings.cache_ttl_seconds,
-        lock_ttl_seconds=_worst_case_job_lifetime_seconds(settings),
+        lock_ttl_seconds=compute_worst_case_job_lifetime_seconds(settings),
     )
 
 

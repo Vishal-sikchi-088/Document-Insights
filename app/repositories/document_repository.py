@@ -135,7 +135,11 @@ class DocumentRepository:
         )
         return DocumentInDB.model_validate(raw) if raw else None
 
-    async def mark_completed(self, document_id: str, summary: SummaryModel) -> None:
+    async def mark_completed(self, document_id: str, summary: SummaryModel, *, cached: bool = False) -> None:
+        # `cached` defaults to False here (real processing produced this
+        # result); the worker passes True explicitly when resolving a
+        # follower from a leader's result, so the stored record accurately
+        # reflects how each document's summary was actually obtained.
         await self._collection.update_one(
             {"_id": _as_object_id(document_id)},
             {
@@ -143,6 +147,7 @@ class DocumentRepository:
                     "status": DocumentStatus.COMPLETED.value,
                     "summary": summary.model_dump(),
                     "error": None,
+                    "cached": cached,
                     "updated_at": datetime.now(timezone.utc),
                 }
             },
