@@ -23,7 +23,7 @@ from app.core.error_handlers import register_exception_handlers
 from app.db.mongo import create_indexes, create_mongo_client
 from app.db.redis import create_redis_client
 from app.logging_config import configure_logging
-from app.routers import documents, health
+from app.routers import documents, health, users
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(documents.router)
+    app.include_router(users.router)
 
     return app
 

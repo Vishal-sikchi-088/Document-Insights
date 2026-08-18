@@ -7,10 +7,17 @@ layer; the ordering and trade-offs below are business logic, not routing
 concerns, so they live here.
 """
 import logging
+import math
+from typing import Optional
 
-from app.core.exceptions import RateLimitExceededError
+from app.core.exceptions import DocumentNotFoundError, RateLimitExceededError
 from app.core.hashing import compute_content_hash
-from app.models.document import DocumentCreateRequest, DocumentSubmitResponse
+from app.models.document import (
+    DocumentCreateRequest,
+    DocumentResponse,
+    DocumentSubmitResponse,
+    PaginatedDocumentsResponse,
+)
 from app.models.enums import DocumentStatus
 from app.repositories.document_repository import DocumentRepository, generate_document_id
 from app.services.cache_service import CacheService
@@ -97,3 +104,33 @@ class DocumentService:
             extra={"document_id": document.id, "user_id": request.user_id, "is_leader": is_leader},
         )
         return DocumentSubmitResponse(document_id=document.id, status=document.status)
+
+    async def get_document(self, document_id: str) -> DocumentResponse:
+        # A malformed id and a well-formed-but-absent id are treated
+        # identically as "not found" (the repository already collapses
+        # them — see `_as_object_id`), rather than splitting them into 404
+        # vs 400. A client only ever needs to know "does this id resolve,"
+        # and not distinguishing the two avoids leaking id-format details.
+        document = await self._repository.find_by_id(document_id)
+        if document is None:
+            raise DocumentNotFoundError(document_id)
+        return DocumentResponse.from_db(document)
+
+    async def list_user_documents(
+        self,
+        user_id: str,
+        *,
+        status: Optional[DocumentStatus],
+        page: int,
+        page_size: int,
+    ) -> PaginatedDocumentsResponse:
+        documents, total_items = await self._repository.find_by_user(
+            user_id, status=status, page=page, page_size=page_size
+        )
+        return PaginatedDocumentsResponse(
+            items=[DocumentResponse.from_db(document) for document in documents],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=math.ceil(total_items / page_size),
+        )
