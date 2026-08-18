@@ -25,6 +25,17 @@ def _as_object_id(document_id: str) -> Optional[ObjectId]:
     return ObjectId(document_id) if ObjectId.is_valid(document_id) else None
 
 
+def generate_document_id() -> str:
+    """Allocate an id without a round-trip to Mongo.
+
+    `ObjectId()` is generated purely client-side (timestamp + machine/process
+    entropy), so callers that need an id *before* they persist anything —
+    notably DocumentService, which reserves a rate-limit slot under this id
+    before the document exists in Mongo at all — can get one for free.
+    """
+    return str(ObjectId())
+
+
 class DocumentRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
         self._collection = db.get_collection(DOCUMENTS_COLLECTION)
@@ -32,6 +43,7 @@ class DocumentRepository:
     async def insert(
         self,
         *,
+        document_id: str,
         user_id: str,
         title: str,
         content: str,
@@ -42,6 +54,7 @@ class DocumentRepository:
     ) -> DocumentInDB:
         now = datetime.now(timezone.utc)
         raw = {
+            "_id": ObjectId(document_id),
             "user_id": user_id,
             "title": title,
             "content": content,
@@ -54,8 +67,7 @@ class DocumentRepository:
             "created_at": now,
             "updated_at": now,
         }
-        result = await self._collection.insert_one(raw)
-        raw["_id"] = result.inserted_id
+        await self._collection.insert_one(raw)
         return DocumentInDB.model_validate(raw)
 
     async def find_by_id(self, document_id: str) -> Optional[DocumentInDB]:

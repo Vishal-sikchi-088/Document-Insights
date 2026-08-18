@@ -19,10 +19,11 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.core.error_handlers import register_exception_handlers
 from app.db.mongo import create_indexes, create_mongo_client
 from app.db.redis import create_redis_client
 from app.logging_config import configure_logging
-from app.routers import health
+from app.routers import documents, health
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    register_exception_handlers(app)
+
     app.include_router(health.router)
+    app.include_router(documents.router)
 
     return app
 
