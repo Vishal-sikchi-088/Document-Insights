@@ -47,6 +47,12 @@ class SummaryModel(BaseModel):
 class DocumentCreateRequest(BaseModel):
     """Payload for `POST /documents`."""
 
+    # Pydantic silently ignores unknown fields by default; forbidding them
+    # turns a client's typo'd or misunderstood field name into an explicit
+    # 422 instead of a request that looks accepted but quietly did less
+    # than the caller expected.
+    model_config = ConfigDict(extra="forbid")
+
     user_id: str = Field(..., min_length=1, max_length=128)
     title: str = Field(..., min_length=1, max_length=300)
     content: str = Field(..., min_length=1, max_length=100_000)

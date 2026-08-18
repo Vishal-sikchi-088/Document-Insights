@@ -89,6 +89,22 @@ class DocumentService:
         # already finished processing, not this in-flight race.
         is_leader = await self._cache.try_acquire_processing_lock(content_hash)
         if is_leader:
+            # Double-checked locking: another request could have completed
+            # and cached this exact content in the gap between our cache
+            # miss above and winning the lock just now (its own job may
+            # have finished and released the lock right before we acquired
+            # it fresh). Re-checking costs one Redis GET and means "won the
+            # lock" never implies committing to redundant 10-30s work.
+            already_cached = await self._cache.get(content_hash)
+            if already_cached is not None:
+                await self._repository.mark_completed(document.id, already_cached, cached=True)
+                await self._rate_limiter.release(request.user_id, document.id)
+                await self._cache.release_processing_lock(content_hash)
+                logger.info(
+                    "document resolved via double-checked cache hit",
+                    extra={"document_id": document.id, "content_hash": content_hash},
+                )
+                return DocumentSubmitResponse(document_id=document.id, status=DocumentStatus.COMPLETED)
             await self._queue.enqueue(document.id)
         else:
             # No queue entry for a follower: whichever worker finishes the
